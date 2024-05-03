@@ -7,6 +7,7 @@ from subprocess import check_output
 from PySide2 import QtGui
 from PySide2.QtWidgets import QApplication, QMainWindow, QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QPushButton, QLineEdit, QRadioButton, QStackedLayout
 from PySide2.QtCore import Qt, QSize
+from Vobject import Vobject
 
 try:
 	import FreeCAD
@@ -32,6 +33,8 @@ class MainWindow(QMainWindow):
 		self.vertices = []
 		self.face_indices = []
 		self.face_normals = []
+
+		self.vobjects = []
 
 		self.initUI()
 
@@ -159,7 +162,7 @@ class MainWindow(QMainWindow):
 
 	# ### GET STEP FILE ###
 	def get_step_file(self):
-		file_name, file_format = QFileDialog.getOpenFileName(self, 'Open STEP file', "", "STEP(*.step);;All Files(*.*) ")
+		file_name, file_format = QFileDialog.getOpenFileName(self, 'Open STEP file', "", "STEP(*.step; *.stp);;All Files(*.*) ")
 
 		# check if file selection was cancelled
 		if file_name == "":
@@ -210,7 +213,10 @@ class MainWindow(QMainWindow):
 		objects = doc.RootObjects
 
 		for ob in objects:
-			self.recursive_tessellate(ob, 1)
+			self.vobjects.append(self.recursive_tessellate(ob, 1))
+
+		for v in self.vobjects:
+			print(v.tostring())
 
 		for ob in objects:
 			if ob.TypeId[:4] == 'Part':
@@ -231,13 +237,21 @@ class MainWindow(QMainWindow):
 		string = ""
 		for i in range(level):
 			string += "   "
-		string += object.Label + " + " + object.TypeId
+		string += object.Label + " : " + object.TypeId
 
-		print(string)
+		# print(string)
+
+
+		# make vobject
+		vobject = Vobject(name=object.Label)
 
 		if(object.TypeId == "App::Part"):
 			for ob in object.Group:
-				self.recursive_tessellate(ob, level + 1)
+				vobject.children.append(self.recursive_tessellate(ob, level + 1))
+		# if(object.TypeId == "Part::Feature"):
+		# 	print("    " + object.Label + "is a leaf node!")
+
+		return vobject
 
 	def mesh_from_shape(self):
 		import Mesh, Part

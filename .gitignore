@@ -1,1 +1,3 @@
 meshes/*
+parts/*
+__pycache__/*
