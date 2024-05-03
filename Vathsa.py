@@ -231,7 +231,7 @@ class MainWindow(QMainWindow):
 		string = ""
 		for i in range(level):
 			string += "   "
-		string += object.Label
+		string += object.Label + " + " + object.TypeId
 
 		print(string)
 
