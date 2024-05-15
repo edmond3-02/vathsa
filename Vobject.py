@@ -19,7 +19,7 @@ class Vobject():
             string += "   "
 
         self.calc_min_max()
-        string += self.name
+        string += self.name + "  first vertex: " + str(self.vertices[0])
 
         for child in self.children:
             string += "\n" + child.recursive_to_string(level + 1)

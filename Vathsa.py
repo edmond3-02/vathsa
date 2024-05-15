@@ -181,8 +181,6 @@ class MainWindow(QMainWindow):
 		self.in_file = file_name
 		self.in_file_label.setText(file_name)
 
-		self.clear_data()
-
 	# ### GET DESTINATION FILE ###
 	def get_destination_file(self):
 		file_name, file_format = QFileDialog.getSaveFileName(self, 'Export file name/format', "", "OBJ(*.obj);;FBX(*.fbx);;All Files(*.*) ")
@@ -198,9 +196,12 @@ class MainWindow(QMainWindow):
 
 	# ### OUTPUT FILE ###
 	def save_file(self):
+		self.clear_data()
+		
 		# choose tesselation method
 		if self.shape_tesselation_rbutton.isChecked():
 			self.shape_tesselate()
+			print(self.vobjects[0].tostring())
 		elif self.mesh_from_shape_rbutton.isChecked():
 			print("mesh from shape")
 			self.mesh_from_shape()
@@ -240,7 +241,6 @@ class MainWindow(QMainWindow):
 		for o in self.vobjects:
 			lRootNode.AddChild(self.add_node(sdk_manager, o))
 
-
 		lGlobalSettings = scene.GetGlobalSettings()
 		
 		return True
@@ -270,13 +270,13 @@ class MainWindow(QMainWindow):
 			lMesh.CreateLayer()
 			lLayer = lMesh.GetLayer(0)
 
-		lLayerElementNormal= FbxLayerElementNormal.Create(lMesh, "")
+		lLayerElementNormal= FbxLayerElementNormal.Create(lMesh, "normals")
 		lLayerElementNormal.SetMappingMode(FbxLayerElement.EMappingMode.eByPolygon)
 		lLayerElementNormal.SetReferenceMode(FbxLayerElement.EReferenceMode.eDirect)
 		index = 0
 
 		for f, n in zip(vobject.faces, vobject.normals):
-			lMesh.BeginPolygon(-1, -1, -1, False)
+			lMesh.BeginPolygon(-1, -1, False)
 
 			for i in range(3):
 				lMesh.AddPolygon(f[i])
@@ -296,16 +296,11 @@ class MainWindow(QMainWindow):
 		import Import
 		Import.open(self.in_file, "Unnamed")
 		doc = App.ActiveDocument
-
-		self.clear_data()
 		
 		objects = doc.RootObjects
 
 		for ob in objects:
-			self.vobjects.append(self.recursive_tessellate(ob, 1))
-
-		for v in self.vobjects:
-			print(v.tostring())
+			self.vobjects.append(self.recursive_tessellate(ob))
 
 		App.closeDocument("Unnamed")
 
@@ -317,32 +312,31 @@ class MainWindow(QMainWindow):
 
 		print(string)
 
-	def recursive_tessellate(self, node, level):
-		
-		# print_rec_tree(node, level)
+	def recursive_tessellate(self, node):
 
 		# make vobject
 		vobject = Vobject(name=node.Label, position=node.Placement.Base)
 
 		if(node.TypeId == "App::Part"):
-			for ob in node.Group:
-				vobject.children.append(self.recursive_tessellate(ob, level + 1))
+			for child in node.Group:
+				print(child.Label)
+				vobject.children.append(self.recursive_tessellate(child))
 		if(node.TypeId == "Part::Feature"):
 			shape = node.Shape
 			if shape.Faces:
 				rawdata = shape.tessellate(self.tess_amt)
 				for v in rawdata[0]:
 					vobject.vertices.append(v)
-					self.vertices.append(v)
+				#	self.vertices.append(v)
 				for f in rawdata[1]:
 					vobject.faces.append(f)
-					self.face_indices.append((f[0]+self.previous_indices, f[1]+self.previous_indices, f[2]+self.previous_indices))
+				#	self.face_indices.append((f[0]+self.previous_indices, f[1]+self.previous_indices, f[2]+self.previous_indices))
 					v1 = vobject.vertices[f[1]].sub(vobject.vertices[f[0]])
 					v2 = vobject.vertices[f[2]].sub(vobject.vertices[f[0]])
 					normal = v1.cross(v2)
 					vobject.normals.append(normal)
-					self.face_normals.append(normal)
-				self.previous_indices = self.previous_indices + len(rawdata[1])
+				#	self.face_normals.append(normal)
+				#self.previous_indices = self.previous_indices + len(rawdata[1])
 
 		return vobject
 
@@ -353,8 +347,6 @@ class MainWindow(QMainWindow):
 		import Import
 		Import.open(self.in_file, "Unnamed")
 		doc = App.ActiveDocument
-
-		self.clear_data()
 
 		__doc__=App.ActiveDocument
 
@@ -390,8 +382,6 @@ class MainWindow(QMainWindow):
 			for face in self.face_indices:
 				f.write(f'f {face[0] + 1}//{face_normal_index} {face[1] + 1}//{face_normal_index} {face[2] + 1}//{face_normal_index}\n')
 				face_normal_index += 1
-
-		self.clear_data()
 
 	def clear_data(self):
 		self.vertices = []
