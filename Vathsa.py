@@ -1,13 +1,22 @@
 # Virtual Asset Tesselator with a Highly Stretched Acronym --- VATHSA
 # Author - Nathan Edmonds
 
-import sys
+import os, sys
 from subprocess import check_output
 
 from PySide2 import QtGui
 from PySide2.QtWidgets import QApplication, QMainWindow, QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QPushButton, QLineEdit, QRadioButton, QStackedLayout
 from PySide2.QtCore import Qt, QSize
 from Vobject import Vobject
+
+try:
+	sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+	import FbxCommon
+	from fbx import *
+except ImportError as e:
+	print("Error: module FbxCommon and/or fbx failed to import.\n")
+	print(e)
+	sys.exit(1)
 
 try:
 	import FreeCAD
@@ -31,6 +40,7 @@ class MainWindow(QMainWindow):
 		self.angular_deflection = 0.523599
 
 		self.vertices = []
+		self.previous_indices = 0
 		self.face_indices = []
 		self.face_normals = []
 
@@ -171,6 +181,8 @@ class MainWindow(QMainWindow):
 		self.in_file = file_name
 		self.in_file_label.setText(file_name)
 
+		self.clear_data()
+
 	# ### GET DESTINATION FILE ###
 	def get_destination_file(self):
 		file_name, file_format = QFileDialog.getSaveFileName(self, 'Export file name/format', "", "OBJ(*.obj);;FBX(*.fbx);;All Files(*.*) ")
@@ -201,7 +213,84 @@ class MainWindow(QMainWindow):
 
 	# ### CONVERT TO FBX ###
 	def save_fbx(self):
-		print("FBX not yet implemented")
+    	# Prepare the FBX SDK.
+		(lSdkManager, lScene) = FbxCommon.InitializeSdkObjects()
+
+		# Create the scene.
+		lResult = self.create_scene(lSdkManager, lScene)
+
+		if lResult == False:
+			print("\n\nAn error occurred while creating the scene...\n")
+			lSdkManager.Destroy()
+			return
+
+		# Save the scene.
+		lResult = FbxCommon.SaveScene(lSdkManager, lScene, self.out_file)
+
+		if lResult == False:
+			print("\n\nAn error occurred while saving the scene...\n")
+        	
+		lSdkManager.Destroy()
+        	
+		return
+
+	def create_scene(self, sdk_manager, scene):
+		lRootNode = scene.GetRootNode()
+
+		for o in self.vobjects:
+			lRootNode.AddChild(self.add_node(sdk_manager, o))
+
+
+		lGlobalSettings = scene.GetGlobalSettings()
+		
+		return True
+
+
+	def add_node(self, sdk_manager, vobject):
+		node = self.make_node(sdk_manager, vobject)
+
+		for child in vobject.children:
+			node.AddChild(self.add_node(sdk_manager, child))
+
+		return node
+
+	def make_node(self, sdk_manager, vobject):
+		lMesh = FbxMesh.Create(sdk_manager, vobject.name)
+
+		verts = []
+		lMesh.InitControlPoints(len(vobject.vertices))     
+    
+		index = 0
+		for v in vobject.vertices:
+			lMesh.SetControlPointAt(FbxVector4(v.x, v.y, v.z), index)
+			index += 1
+
+		lLayer = lMesh.GetLayer(0)
+		if lLayer == None:
+			lMesh.CreateLayer()
+			lLayer = lMesh.GetLayer(0)
+
+		lLayerElementNormal= FbxLayerElementNormal.Create(lMesh, "")
+		lLayerElementNormal.SetMappingMode(FbxLayerElement.EMappingMode.eByPolygon)
+		lLayerElementNormal.SetReferenceMode(FbxLayerElement.EReferenceMode.eDirect)
+		index = 0
+
+		for f, n in zip(vobject.faces, vobject.normals):
+			lMesh.BeginPolygon(-1, -1, -1, False)
+
+			for i in range(3):
+				lMesh.AddPolygon(f[i])
+
+			lMesh.EndPolygon()
+			lLayerElementNormal.GetDirectArray().Add(FbxVector4(n.x, n.y, n.z))
+
+		lLayer.SetNormals(lLayerElementNormal)
+
+		lNode = FbxNode.Create(sdk_manager, vobject.name)
+		lNode.SetNodeAttribute(lMesh)
+		lNode.SetShadingMode(FbxNode.EShadingMode.eFlatShading)
+
+		return lNode
 
 	def shape_tesselate(self):
 		import Import
@@ -218,38 +307,42 @@ class MainWindow(QMainWindow):
 		for v in self.vobjects:
 			print(v.tostring())
 
-		for ob in objects:
-			if ob.TypeId[:4] == 'Part':
-				shape = ob.Shape
-				if shape.Faces:
-					rawdata = shape.tessellate(self.tess_amt)
-					for v in rawdata[0]:
-						self.vertices.append(v)
-					for f in rawdata[1]:
-						self.face_indices.append(f)
-						v1 = self.vertices[f[1]].sub(self.vertices[f[0]])
-						v2 = self.vertices[f[2]].sub(self.vertices[f[0]])
-						self.face_normals.append(v1.cross(v2))
-
 		App.closeDocument("Unnamed")
 
-	def recursive_tessellate(self, object, level):
+	def print_rec_tree(self, node, level):
 		string = ""
 		for i in range(level):
 			string += "   "
-		string += object.Label + " : " + object.TypeId
+		string += node.Label + " : " + node.TypeId
 
-		# print(string)
+		print(string)
 
+	def recursive_tessellate(self, node, level):
+		
+		# print_rec_tree(node, level)
 
 		# make vobject
-		vobject = Vobject(name=object.Label)
+		vobject = Vobject(name=node.Label, position=node.Placement.Base)
 
-		if(object.TypeId == "App::Part"):
-			for ob in object.Group:
+		if(node.TypeId == "App::Part"):
+			for ob in node.Group:
 				vobject.children.append(self.recursive_tessellate(ob, level + 1))
-		# if(object.TypeId == "Part::Feature"):
-		# 	print("    " + object.Label + "is a leaf node!")
+		if(node.TypeId == "Part::Feature"):
+			shape = node.Shape
+			if shape.Faces:
+				rawdata = shape.tessellate(self.tess_amt)
+				for v in rawdata[0]:
+					vobject.vertices.append(v)
+					self.vertices.append(v)
+				for f in rawdata[1]:
+					vobject.faces.append(f)
+					self.face_indices.append((f[0]+self.previous_indices, f[1]+self.previous_indices, f[2]+self.previous_indices))
+					v1 = vobject.vertices[f[1]].sub(vobject.vertices[f[0]])
+					v2 = vobject.vertices[f[2]].sub(vobject.vertices[f[0]])
+					normal = v1.cross(v2)
+					vobject.normals.append(normal)
+					self.face_normals.append(normal)
+				self.previous_indices = self.previous_indices + len(rawdata[1])
 
 		return vobject
 
@@ -302,9 +395,11 @@ class MainWindow(QMainWindow):
 
 	def clear_data(self):
 		self.vertices = []
+		self.previous_indices = 0
 		self.face_indices = []
 		self.face_normals = []
 
+		self.vobjects = []
 
 def main():
 	app = QApplication(sys.argv)
