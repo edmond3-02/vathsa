@@ -1,1 +1,4 @@
 meshes/*
+parts/*
+__pycache__/*
+*.log
