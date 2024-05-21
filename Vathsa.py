@@ -172,7 +172,7 @@ class MainWindow(QMainWindow):
 
 	# ### GET STEP FILE ###
 	def get_step_file(self):
-		file_name, file_format = QFileDialog.getOpenFileName(self, 'Open STEP file', "", "STEP(*.step; *.stp);;All Files(*.*) ")
+		file_name, file_format = QFileDialog.getOpenFileName(self, 'Open STEP file', "./step_files", "STEP(*.step; *.stp);;All Files(*.*) ")
 
 		# check if file selection was cancelled
 		if file_name == "":
@@ -183,7 +183,7 @@ class MainWindow(QMainWindow):
 
 	# ### GET DESTINATION FILE ###
 	def get_destination_file(self):
-		file_name, file_format = QFileDialog.getSaveFileName(self, 'Export file name/format', "", "OBJ(*.obj);;FBX(*.fbx);;All Files(*.*) ")
+		file_name, file_format = QFileDialog.getSaveFileName(self, 'Export file name/format', "./meshes", "FBX(*.fbx);;OBJ(*.obj);;All Files(*.*) ")
 
 		# check if file selection was cancelled
 		if file_name == "":
@@ -197,13 +197,13 @@ class MainWindow(QMainWindow):
 	# ### OUTPUT FILE ###
 	def save_file(self):
 		self.clear_data()
-		
+
 		# choose tesselation method
 		if self.shape_tesselation_rbutton.isChecked():
 			self.shape_tesselate()
-			print(self.vobjects[0].tostring())
+			for vob in self.vobjects:
+				print(vob.tostring())
 		elif self.mesh_from_shape_rbutton.isChecked():
-			print("mesh from shape")
 			self.mesh_from_shape()
 
 		# select output file
@@ -271,10 +271,10 @@ class MainWindow(QMainWindow):
 			lLayer = lMesh.GetLayer(0)
 
 		lLayerElementNormal= FbxLayerElementNormal.Create(lMesh, "normals")
-		lLayerElementNormal.SetMappingMode(FbxLayerElement.EMappingMode.eByPolygon)
-		lLayerElementNormal.SetReferenceMode(FbxLayerElement.EReferenceMode.eDirect)
-		index = 0
+		lLayerElementNormal.SetMappingMode(FbxLayerElement.EMappingMode.eByPolygonVertex)
+		lLayerElementNormal.SetReferenceMode(FbxLayerElement.EReferenceMode.eIndexToDirect)
 
+		index = 0
 		for f, n in zip(vobject.faces, vobject.normals):
 			lMesh.BeginPolygon(-1, -1, False)
 
@@ -283,6 +283,10 @@ class MainWindow(QMainWindow):
 
 			lMesh.EndPolygon()
 			lLayerElementNormal.GetDirectArray().Add(FbxVector4(n.x, n.y, n.z))
+			for i in range(3):
+				lLayerElementNormal.GetIndexArray().Add(index)
+			index += 1
+
 
 		lLayer.SetNormals(lLayerElementNormal)
 
@@ -300,31 +304,30 @@ class MainWindow(QMainWindow):
 		objects = doc.RootObjects
 
 		for ob in objects:
-			self.vobjects.append(self.recursive_tessellate(ob))
+			self.vobjects.append(self.recursive_tessellate(ob, 0))
 
 		App.closeDocument("Unnamed")
 
-	def print_rec_tree(self, node, level):
-		string = ""
-		for i in range(level):
-			string += "   "
-		string += node.Label + " : " + node.TypeId
-
-		print(string)
-
-	def recursive_tessellate(self, node):
+	def recursive_tessellate(self, node, level):
 
 		# make vobject
-		vobject = Vobject(name=node.Label, position=node.Placement.Base)
+		vname = node.Label.replace(" ", "_")
+		vobject = Vobject(name=vname, position=node.Placement.Base)
+
+		string = ""
+		for i in range(level):
+			string += "  "
+		string += vobject.name
 
 		if(node.TypeId == "App::Part"):
 			for child in node.Group:
-				print(child.Label)
-				vobject.children.append(self.recursive_tessellate(child))
+				vobject.children.append(self.recursive_tessellate(child, level + 1))
 		if(node.TypeId == "Part::Feature"):
 			shape = node.Shape
 			if shape.Faces:
 				rawdata = shape.tessellate(self.tess_amt)
+				string += "\n---first tesselated vert: " + str(rawdata[0][0])
+				string += " last tesselated vert: " + str(rawdata[0][len(rawdata[0]) - 1])
 				for v in rawdata[0]:
 					vobject.vertices.append(v)
 				#	self.vertices.append(v)
@@ -333,10 +336,14 @@ class MainWindow(QMainWindow):
 				#	self.face_indices.append((f[0]+self.previous_indices, f[1]+self.previous_indices, f[2]+self.previous_indices))
 					v1 = vobject.vertices[f[1]].sub(vobject.vertices[f[0]])
 					v2 = vobject.vertices[f[2]].sub(vobject.vertices[f[0]])
-					normal = v1.cross(v2)
+					normal = v1.cross(v2).normalize()
 					vobject.normals.append(normal)
 				#	self.face_normals.append(normal)
 				#self.previous_indices = self.previous_indices + len(rawdata[1])
+				string += "\n---first written vert: " + str(vobject.vertices[0])
+				string += " last written vert: " + str(vobject.vertices[len(vobject.vertices) - 1])
+
+		print(string)
 
 		return vobject
 
@@ -366,7 +373,7 @@ class MainWindow(QMainWindow):
 				self.face_indices.append(face.PointIndices)
 				v1 = self.vertices[face.PointIndices[1]].Vector.sub(self.vertices[face.PointIndices[0]].Vector)
 				v2 = self.vertices[face.PointIndices[2]].Vector.sub(self.vertices[face.PointIndices[0]].Vector)
-				self.face_normals.append(v1.cross(v2))
+				self.face_normals.append(v1.cross(v2).normalize())
 
 		App.closeDocument("Unnamed")
 

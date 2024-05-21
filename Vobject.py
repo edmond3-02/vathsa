@@ -1,10 +1,10 @@
 class Vobject():
-    def __init__(self, name="", position=(0,0,0), verts=[], faces=[], normals=[], tess_amt=1.0):
+    def __init__(self, name="", position=(0,0,0), tess_amt=1.0):
         self.name = name
         self.position = position
-        self.vertices = verts
-        self.faces = faces
-        self.normals = normals
+        self.vertices = []
+        self.faces = []
+        self.normals = []
         self.children = []
         self.tess_amt = tess_amt
         self.min_face_ind = 1
@@ -19,7 +19,7 @@ class Vobject():
             string += "   "
 
         self.calc_min_max()
-        string += self.name + "  first vertex: " + str(self.vertices[0])
+        string += self.name
 
         for child in self.children:
             string += "\n" + child.recursive_to_string(level + 1)
