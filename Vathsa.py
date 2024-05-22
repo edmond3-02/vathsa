@@ -5,7 +5,7 @@ import os, sys
 from subprocess import check_output
 
 from PySide2 import QtGui
-from PySide2.QtWidgets import QApplication, QMainWindow, QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QPushButton, QLineEdit, QRadioButton, QStackedLayout
+from PySide2.QtWidgets import QApplication, QMainWindow, QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QPushButton, QLineEdit, QRadioButton, QStackedLayout, QCheckBox
 from PySide2.QtCore import Qt, QSize
 from Vobject import Vobject
 
@@ -34,6 +34,8 @@ class MainWindow(QMainWindow):
 		self.in_file = ""
 		self.out_file = ""
 		self.out_format = ""
+
+		self.verbose = False
 
 		self.tess_amt = 1.0
 		self.linear_deflection = 0.1
@@ -147,11 +149,21 @@ class MainWindow(QMainWindow):
 		# ### Save button ###
 		layout.addStretch()
 
+		output_widget = QWidget()
+		output_layout = QHBoxLayout()
+		output_widget.setLayout(output_layout)
+		layout.addWidget(output_widget)
+
+		self.center_pivot_box = QCheckBox("Force center of mass")
+		self.center_pivot_box.setChecked(True)
+		output_layout.addWidget(self.center_pivot_box)
+
+
 		save_button = QPushButton("Save")
 		save_button.setMaximumWidth(120)
 
 		save_button.clicked.connect(self.get_destination_file)
-		layout.addWidget(save_button, alignment=Qt.AlignRight)
+		output_layout.addWidget(save_button, alignment=Qt.AlignRight)
 
 		# ### MAIN APP LAYOUT ####
 
@@ -201,10 +213,13 @@ class MainWindow(QMainWindow):
 		# choose tesselation method
 		if self.shape_tesselation_rbutton.isChecked():
 			self.shape_tesselate()
-			for vob in self.vobjects:
-				print(vob.tostring())
 		elif self.mesh_from_shape_rbutton.isChecked():
 			self.mesh_from_shape()
+
+	
+		if self.verbose:
+			for vob in self.vobjects:
+				print(vob.tostring())
 
 		# select output file
 		if self.out_format == 'FBX':
@@ -292,6 +307,7 @@ class MainWindow(QMainWindow):
 
 		lNode = FbxNode.Create(sdk_manager, vobject.name)
 		lNode.SetNodeAttribute(lMesh)
+		lNode.LclTranslation.Set(FbxDouble3(vobject.position.x, vobject.position.y, vobject.position.z))
 		lNode.SetShadingMode(FbxNode.EShadingMode.eFlatShading)
 
 		return lNode
@@ -326,24 +342,20 @@ class MainWindow(QMainWindow):
 			shape = node.Shape
 			if shape.Faces:
 				rawdata = shape.tessellate(self.tess_amt)
-				string += "\n---first tesselated vert: " + str(rawdata[0][0])
-				string += " last tesselated vert: " + str(rawdata[0][len(rawdata[0]) - 1])
 				for v in rawdata[0]:
-					vobject.vertices.append(v)
-				#	self.vertices.append(v)
+					vobject.add_vertex(v)
+					self.vertices.append(v)
 				for f in rawdata[1]:
 					vobject.faces.append(f)
-				#	self.face_indices.append((f[0]+self.previous_indices, f[1]+self.previous_indices, f[2]+self.previous_indices))
+					self.face_indices.append((f[0]+self.previous_indices, f[1]+self.previous_indices, f[2]+self.previous_indices))
 					v1 = vobject.vertices[f[1]].sub(vobject.vertices[f[0]])
 					v2 = vobject.vertices[f[2]].sub(vobject.vertices[f[0]])
 					normal = v1.cross(v2).normalize()
 					vobject.normals.append(normal)
-				#	self.face_normals.append(normal)
-				#self.previous_indices = self.previous_indices + len(rawdata[1])
-				string += "\n---first written vert: " + str(vobject.vertices[0])
-				string += " last written vert: " + str(vobject.vertices[len(vobject.vertices) - 1])
-
-		print(string)
+					self.face_normals.append(normal)
+				self.previous_indices = self.previous_indices + len(rawdata[1])
+				if self.center_pivot_box.isChecked():
+					vobject.center_pivot()
 
 		return vobject
 
@@ -357,23 +369,35 @@ class MainWindow(QMainWindow):
 
 		__doc__=App.ActiveDocument
 
-		for __object__ in __doc__.Objects:
-			__mesh__=__doc__.addObject("Mesh::Feature","Mesh")
-			__part__=__doc__.getObject("Model")
-			__shape__=Part.getShape(__part__,"")
+		for __object__ in __doc__.RootObjects:
+			vname = __object__.Label.replace(" ", "_")
+			__mesh__=__doc__.addObject("Mesh::Feature", vname)
+			__shape__=Part.getShape(__object__,"")
 			__mesh__.Mesh=MeshPart.meshFromShape(Shape=__shape__, LinearDeflection=self.linear_deflection, AngularDeflection=self.angular_deflection, Relative=False)
+
+			vobject = Vobject(name=vname, position=__object__.Placement.Base)
 
 			# points
 			points = __mesh__.Mesh.Points
 			for point in points:
-				self.vertices.append(point)
+				self.vertices.append(point.Vector)
+				vobject.add_vertex(point.Vector)
 			# faces
 			faces = __mesh__.Mesh.Facets
 			for face in faces:
 				self.face_indices.append(face.PointIndices)
-				v1 = self.vertices[face.PointIndices[1]].Vector.sub(self.vertices[face.PointIndices[0]].Vector)
-				v2 = self.vertices[face.PointIndices[2]].Vector.sub(self.vertices[face.PointIndices[0]].Vector)
-				self.face_normals.append(v1.cross(v2).normalize())
+				vobject.faces.append(face.PointIndices)
+				v1 = self.vertices[face.PointIndices[1]].sub(self.vertices[face.PointIndices[0]])
+				v2 = self.vertices[face.PointIndices[2]].sub(self.vertices[face.PointIndices[0]])
+				normal = v1.cross(v2)
+				if normal != FreeCAD.Vector (0.0, 0.0, 0.0):
+					normal = normal.normalize()
+				else:
+					normal = FreeCAD.Vector(1.0, 0.0, 0.0)
+				self.face_normals.append(normal)
+				vobject.normals.append(normal)
+
+			self.vobjects.append(vobject)
 
 		App.closeDocument("Unnamed")
 
@@ -382,9 +406,9 @@ class MainWindow(QMainWindow):
 		
 		with open(self.out_file, "w") as f:
 			for vert in self.vertices:
-				f.write(f'v {vert.x} {vert.z} {vert.y}\n')
+				f.write(f'v {vert.x} {vert.y} {vert.z}\n')
 			for normal in self.face_normals:
-				f.write(f'vn {normal.x} {normal.z} {normal.y}\n')
+				f.write(f'vn {normal.x} {normal.y} {normal.z}\n')
 			face_normal_index = 1
 			for face in self.face_indices:
 				f.write(f'f {face[0] + 1}//{face_normal_index} {face[1] + 1}//{face_normal_index} {face[2] + 1}//{face_normal_index}\n')
