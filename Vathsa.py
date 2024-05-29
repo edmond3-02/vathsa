@@ -71,13 +71,13 @@ class MainWindow(QMainWindow):
 		layout.addWidget(tess_type_label)
 
 		# Shape tesselation method, Radio button
-		self.shape_tesselation_rbutton = QRadioButton("Tesselation method")
+		self.shape_tesselation_rbutton = QRadioButton("Recursive method")
 		self.shape_tesselation_rbutton.clicked.connect(self.update_options_box)
 		layout.addWidget(self.shape_tesselation_rbutton)
 		self.shape_tesselation_rbutton.toggle()
 
 		# Mesh from shape method, Radio button
-		self.mesh_from_shape_rbutton = QRadioButton("Mesh from shape method")
+		self.mesh_from_shape_rbutton = QRadioButton("Single body method")
 		self.mesh_from_shape_rbutton.clicked.connect(self.update_options_box)
 		layout.addWidget(self.mesh_from_shape_rbutton)
 
@@ -250,6 +250,18 @@ class MainWindow(QMainWindow):
         	
 		return
 
+	# ### CONVERT TO OBJ ####
+	def save_obj(self):
+		with open(self.out_file, "w") as f:
+			for vert in self.vertices:
+				f.write(f'v {vert.x} {vert.y} {vert.z}\n')
+			for normal in self.face_normals:
+				f.write(f'vn {normal.x} {normal.y} {normal.z}\n')
+			face_normal_index = 1
+			for face in self.face_indices:
+				f.write(f'f {face[0] + 1}//{face_normal_index} {face[1] + 1}//{face_normal_index} {face[2] + 1}//{face_normal_index}\n')
+				face_normal_index += 1
+
 	def create_scene(self, sdk_manager, scene):
 		lRootNode = scene.GetRootNode()
 
@@ -259,7 +271,6 @@ class MainWindow(QMainWindow):
 		lGlobalSettings = scene.GetGlobalSettings()
 		
 		return True
-
 
 	def add_node(self, sdk_manager, vobject):
 		node = self.make_node(sdk_manager, vobject)
@@ -400,19 +411,6 @@ class MainWindow(QMainWindow):
 			self.vobjects.append(vobject)
 
 		App.closeDocument("Unnamed")
-
-	# ### CONVERT TO OBJ ####
-	def save_obj(self):
-		
-		with open(self.out_file, "w") as f:
-			for vert in self.vertices:
-				f.write(f'v {vert.x} {vert.y} {vert.z}\n')
-			for normal in self.face_normals:
-				f.write(f'vn {normal.x} {normal.y} {normal.z}\n')
-			face_normal_index = 1
-			for face in self.face_indices:
-				f.write(f'f {face[0] + 1}//{face_normal_index} {face[1] + 1}//{face_normal_index} {face[2] + 1}//{face_normal_index}\n')
-				face_normal_index += 1
 
 	def clear_data(self):
 		self.vertices = []
