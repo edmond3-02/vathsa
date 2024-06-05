@@ -3,11 +3,13 @@
 
 import os, sys
 from subprocess import check_output
+from pathlib import Path
 
 from PySide2 import QtGui
-from PySide2.QtWidgets import QApplication, QMainWindow, QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QPushButton, QLineEdit, QRadioButton, QStackedLayout, QCheckBox
+from PySide2.QtWidgets import QApplication, QMainWindow, QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QPushButton, QLineEdit, QRadioButton, QStackedLayout, QCheckBox, QTreeView, QAbstractItemView
 from PySide2.QtCore import Qt, QSize
 from Vobject import Vobject
+from Vtreemodel import VTreeModel
 
 try:
 	sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -47,6 +49,7 @@ class MainWindow(QMainWindow):
 		self.face_normals = []
 
 		self.vobjects = []
+		self.alt_vobjects = []
 
 		self.initUI()
 
@@ -146,6 +149,32 @@ class MainWindow(QMainWindow):
 		# Add widget to layout
 		angular_deflection_layout.addWidget(self.angular_deflection_box)
 
+		# ### TREE ###
+
+		self.view = QTreeView()
+		self.view.setAlternatingRowColors(True)
+		self.view.setSelectionBehavior(QAbstractItemView.SelectItems)
+		self.view.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+		self.view.setAnimated(False)
+		self.view.setAllColumnsShowFocus(True)
+
+		layout.addWidget(self.view)
+
+		headers = ["Name", "Tesselation level"]
+
+		file = Path(__file__).parent / "default.txt"
+		self.model = VTreeModel(headers, file.read_text(), self)
+
+		if "-t" in sys.argv:
+			QAbstractItemModelTester(self.model, self)
+		self.view.setModel(self.model)
+		self.view.expandAll()
+
+		for column in range(self.model.columnCount()):
+			self.view.resizeColumnToContents(column)
+
+		selection_model = self.view.selectionModel()
+
 		# ### Save button ###
 		layout.addStretch()
 
@@ -229,7 +258,7 @@ class MainWindow(QMainWindow):
 
 	# ### CONVERT TO FBX ###
 	def save_fbx(self):
-    	# Prepare the FBX SDK.
+		# Prepare the FBX SDK.
 		(lSdkManager, lScene) = FbxCommon.InitializeSdkObjects()
 
 		# Create the scene.
@@ -245,9 +274,9 @@ class MainWindow(QMainWindow):
 
 		if lResult == False:
 			print("\n\nAn error occurred while saving the scene...\n")
-        	
+			
 		lSdkManager.Destroy()
-        	
+			
 		return
 
 	# ### CONVERT TO OBJ ####
@@ -285,7 +314,7 @@ class MainWindow(QMainWindow):
 
 		verts = []
 		lMesh.InitControlPoints(len(vobject.vertices))     
-    
+	
 		index = 0
 		for v in vobject.vertices:
 			lMesh.SetControlPointAt(FbxVector4(v.x, v.y, v.z), index)
@@ -412,6 +441,26 @@ class MainWindow(QMainWindow):
 
 		App.closeDocument("Unnamed")
 
+	def load_vobjects(self):
+		import Import
+		Import.open(self.in_file, "Unnamed")
+		doc = App.ActiveDocument
+
+		objects = doc.RootObjects
+
+		for ob in objects:
+			self.vobjects.append(self.recursive_load(ob))
+		
+	def recursive_load(self, node):
+		vname = node.Label.replace(" ", "_")
+		vobject = Vobject(name=name)
+
+		if(node.TypeId == "App::Part"):
+			for child in node.Group:
+				vobject.children.append(self.recursive_load(child))
+
+		return vobject
+
 	def clear_data(self):
 		self.vertices = []
 		self.previous_indices = 0
@@ -419,6 +468,7 @@ class MainWindow(QMainWindow):
 		self.face_normals = []
 
 		self.vobjects = []
+		self.alt_vobjects = []
 
 def main():
 	app = QApplication(sys.argv)
