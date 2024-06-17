@@ -3,6 +3,7 @@ class Vobject():
         self.name = name
         import FreeCAD
         self.position = FreeCAD.Vector(position)
+        self.part = None
         self.vertices = []
         self.global_verts = []
         self.faces = []

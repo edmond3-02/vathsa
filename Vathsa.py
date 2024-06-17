@@ -222,6 +222,9 @@ class MainWindow(QMainWindow):
 		self.in_file = file_name
 		self.in_file_label.setText(file_name)
 
+		self.load_vobjects()
+		print(self.vobjects[0].tostring())
+
 	# ### GET DESTINATION FILE ###
 	def get_destination_file(self):
 		file_name, file_format = QFileDialog.getSaveFileName(self, 'Export file name/format', "./meshes", "FBX(*.fbx);;OBJ(*.obj);;All Files(*.*) ")
@@ -453,7 +456,8 @@ class MainWindow(QMainWindow):
 		
 	def recursive_load(self, node):
 		vname = node.Label.replace(" ", "_")
-		vobject = Vobject(name=name)
+		vobject = Vobject(name=vname)
+		vobject.part = node
 
 		if(node.TypeId == "App::Part"):
 			for child in node.Group:
