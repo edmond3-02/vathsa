@@ -187,6 +187,7 @@ class VTreeModel(QAbstractItemModel):
 					child.set_data(column, column_data[column])
 
 	def setup_model_data2(self, vobj):
+		self.removeRows(0, self.rowCount())
 		self.root_item.child_items.append(VTreeItem(obj=vobj))
 
 

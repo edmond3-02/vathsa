@@ -1,5 +1,5 @@
 class Vobject():
-    def __init__(self, name="", position=(0,0,0), tess_amt="d"):
+    def __init__(self, name="", position=(0,0,0)):
         self.name = name
         import FreeCAD
         self.position = FreeCAD.Vector(position)
@@ -9,7 +9,7 @@ class Vobject():
         self.faces = []
         self.normals = []
         self.children = []
-        self.tess_amt = tess_amt
+        self.model_item = None
         self.min_face_ind = 1
         self.max_face_ind = 0
 

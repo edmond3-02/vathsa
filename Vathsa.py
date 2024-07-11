@@ -31,7 +31,7 @@ class MainWindow(QMainWindow):
 		super().__init__()
 
 		self.min_width = 400
-		self.min_height = 200
+		self.min_height = 400
 
 		self.in_file = ""
 		self.out_file = ""
@@ -172,11 +172,11 @@ class MainWindow(QMainWindow):
 
 		# for column in range(self.model.columnCount()):
 		#	self.view.resizeColumnToContents(column)
+		self.view.setColumnWidth(0, 200)
 
 		selection_model = self.view.selectionModel()
 
 		# ### Save button ###
-		layout.addStretch()
 
 		output_widget = QWidget()
 		output_layout = QHBoxLayout()
@@ -220,10 +220,10 @@ class MainWindow(QMainWindow):
 			return
 		
 		self.in_file = file_name
-		self.in_file_label.setText(file_name)
+		self.in_file_label.setText(self.in_file)
 
+		self.clear_all()
 		self.load_vobjects()
-		print(self.vobjects[0].tostring())
 
 	# ### GET DESTINATION FILE ###
 	def get_destination_file(self):
@@ -240,11 +240,11 @@ class MainWindow(QMainWindow):
 
 	# ### OUTPUT FILE ###
 	def save_file(self):
-		self.clear_data()
+		self.clear_meshes()
 
 		# choose tesselation method
 		if self.shape_tesselation_rbutton.isChecked():
-			self.shape_tesselate()
+			self.shape_tessellate_loaded()
 		elif self.mesh_from_shape_rbutton.isChecked():
 			self.mesh_from_shape()
 
@@ -252,6 +252,8 @@ class MainWindow(QMainWindow):
 		if self.verbose:
 			for vob in self.vobjects:
 				print(vob.tostring())
+
+		print(self.model.__repr__)
 
 		# select output file
 		if self.out_format == 'FBX':
@@ -313,7 +315,7 @@ class MainWindow(QMainWindow):
 		return node
 
 	def make_node(self, sdk_manager, vobject):
-		lMesh = FbxMesh.Create(sdk_manager, vobject.name)
+		lMesh = FbxMesh.Create(sdk_manager, vobject.model_item.item_data[0])
 
 		verts = []
 		lMesh.InitControlPoints(len(vobject.vertices))     
@@ -348,45 +350,33 @@ class MainWindow(QMainWindow):
 
 		lLayer.SetNormals(lLayerElementNormal)
 
-		lNode = FbxNode.Create(sdk_manager, vobject.name)
+		lNode = FbxNode.Create(sdk_manager, vobject.model_item.item_data[0])
 		lNode.SetNodeAttribute(lMesh)
 		lNode.LclTranslation.Set(FbxDouble3(vobject.position.x, vobject.position.y, vobject.position.z))
 		lNode.SetShadingMode(FbxNode.EShadingMode.eFlatShading)
 
 		return lNode
 
-	def shape_tesselate(self):
-		import Import
-		Import.open(self.in_file, "Unnamed")
-		doc = App.ActiveDocument
-		
-		objects = doc.RootObjects
+	def shape_tessellate_loaded(self):
+		for ob in self.vobjects:
+			self.recursive_tessellate_loaded(ob)
 
-		for ob in objects:
-			self.vobjects.append(self.recursive_tessellate(ob, 0))
+	def recursive_tessellate_loaded(self, vobject):
+		for child in vobject.children:
+			self.recursive_tessellate_loaded(child)
 
-		App.closeDocument("Unnamed")
 
-	def recursive_tessellate(self, node, level):
-
-		# make vobject
-		vname = node.Label.replace(" ", "_")
-		vobject = Vobject(name=vname, position=node.Placement.Base)
-
-		string = ""
-		for i in range(level):
-			string += "  "
-		string += vobject.name
-
-		if(node.TypeId == "App::Part"):
-			for child in node.Group:
-				vobject.children.append(self.recursive_tessellate(child, level + 1))
-		if(node.TypeId == "Part::Feature"):
-			shape = node.Shape
+		if(vobject.part.TypeId == "Part::Feature"):
+			shape = vobject.part.Shape
 			if shape.Faces:
 				# use global values if the vobject tessellation amount is unchanged from 1
-				tess_amt = self.tess_amt if vobject.tess_amt == "d" else vobject.tess_amt
+				tess_amt = self.tess_amt if vobject.model_item.item_data[1] == -1 else vobject.model_item.item_data[1]
+				print(vobject.name + " " + str(tess_amt))
 				rawdata = shape.tessellate(tess_amt)
+				vobject.vertices = []
+				vobject.global_verts = []
+				vobject.faces = []
+				vobject.normals = []
 				for v in rawdata[0]:
 					vobject.add_vertex(v)
 					self.vertices.append(v)
@@ -401,8 +391,6 @@ class MainWindow(QMainWindow):
 				self.previous_indices = self.previous_indices + len(rawdata[1])
 				if self.center_pivot_box.isChecked():
 					vobject.center_pivot()
-
-		return vobject
 
 	def mesh_from_shape(self):
 		import Mesh, Part
@@ -447,6 +435,12 @@ class MainWindow(QMainWindow):
 		App.closeDocument("Unnamed")
 
 	def load_vobjects(self):
+		# clear any existing objects
+		doc = App.ActiveDocument
+		if doc != None:
+			doc.clearDocument()
+
+		# import new file
 		import Import
 		Import.open(self.in_file, "Unnamed")
 		doc = App.ActiveDocument
@@ -455,6 +449,8 @@ class MainWindow(QMainWindow):
 
 		for ob in objects:
 			self.vobjects.append(self.recursive_load(ob))
+
+		print(self.vobjects[0].tostring())
 
 		self.model.setup_model_data2(self.vobjects[0])
 		
@@ -469,7 +465,7 @@ class MainWindow(QMainWindow):
 
 		return vobject
 
-	def clear_data(self):
+	def clear_all(self):
 		self.vertices = []
 		self.previous_indices = 0
 		self.face_indices = []
@@ -477,6 +473,12 @@ class MainWindow(QMainWindow):
 
 		self.vobjects = []
 		self.alt_vobjects = []
+
+	def clear_meshes(self):
+		self.vertices = []
+		self.previous_indices = 0
+		self.face_indices = []
+		self.face_normals = []
 
 def main():
 	app = QApplication(sys.argv)

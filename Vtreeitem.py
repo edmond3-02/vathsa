@@ -5,11 +5,11 @@ from Vobject import Vobject
 class VTreeItem:
 	def __init__(self, parent: 'VTreeItem' = None, obj = None, data = []):
 		self.item_data = data
-		if obj != None:
-			self.item_data = [obj.name, obj.tess_amt]
 		self.parent_item = parent
 		self.child_items = []
 		if obj != None:
+			self.item_data = [obj.name, -1]
+			obj.model_item = self
 			for child in obj.children:
 				self.child_items.append(VTreeItem(self, child))
 
