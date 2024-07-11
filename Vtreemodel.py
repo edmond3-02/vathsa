@@ -1,5 +1,6 @@
 from PySide2.QtCore import QModelIndex, Qt, QAbstractItemModel
 from Vtreeitem import VTreeItem
+from Vobject import Vobject
 
 
 class VTreeModel(QAbstractItemModel):
@@ -8,8 +9,8 @@ class VTreeModel(QAbstractItemModel):
 		super().__init__(parent)
 
 		self.root_data = headers
-		self.root_item = VTreeItem(self.root_data.copy())
-		self.setup_model_data(data.split("\n"), self.root_item)
+		self.root_item = VTreeItem(data=self.root_data.copy())
+		# self.setup_model_data(data.split("\n"), self.root_item)
 
 	def columnCount(self, parent: QModelIndex = None) -> int:
 		return self.root_item.column_count()
@@ -184,6 +185,10 @@ class VTreeModel(QAbstractItemModel):
 				for column in range(len(column_data)):
 					child = parent.last_child()
 					child.set_data(column, column_data[column])
+
+	def setup_model_data2(self, vobj):
+		self.root_item.child_items.append(VTreeItem(obj=vobj))
+
 
 	def _repr_recursion(self, item: VTreeItem, indent: int = 0) -> str:
 		result = " " * indent + repr(item) + "\n"

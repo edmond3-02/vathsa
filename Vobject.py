@@ -1,5 +1,5 @@
 class Vobject():
-    def __init__(self, name="", position=(0,0,0), tess_amt=1.0):
+    def __init__(self, name="", position=(0,0,0), tess_amt="d"):
         self.name = name
         import FreeCAD
         self.position = FreeCAD.Vector(position)

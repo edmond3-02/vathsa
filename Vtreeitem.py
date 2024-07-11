@@ -1,11 +1,17 @@
 import sys
 from PySide2 import QtGui, QtCore
+from Vobject import Vobject
 
 class VTreeItem:
-	def __init__(self, data: list, parent: 'VTreeItem' = None):
+	def __init__(self, parent: 'VTreeItem' = None, obj = None, data = []):
 		self.item_data = data
+		if obj != None:
+			self.item_data = [obj.name, obj.tess_amt]
 		self.parent_item = parent
 		self.child_items = []
+		if obj != None:
+			for child in obj.children:
+				self.child_items.append(VTreeItem(self, child))
 
 	def child(self, number: int) -> 'VTreeItem':
 		if number < 0 or number >= len(self.child_items):

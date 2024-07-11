@@ -170,8 +170,8 @@ class MainWindow(QMainWindow):
 		self.view.setModel(self.model)
 		self.view.expandAll()
 
-		for column in range(self.model.columnCount()):
-			self.view.resizeColumnToContents(column)
+		# for column in range(self.model.columnCount()):
+		#	self.view.resizeColumnToContents(column)
 
 		selection_model = self.view.selectionModel()
 
@@ -384,7 +384,9 @@ class MainWindow(QMainWindow):
 		if(node.TypeId == "Part::Feature"):
 			shape = node.Shape
 			if shape.Faces:
-				rawdata = shape.tessellate(self.tess_amt)
+				# use global values if the vobject tessellation amount is unchanged from 1
+				tess_amt = self.tess_amt if vobject.tess_amt == "d" else vobject.tess_amt
+				rawdata = shape.tessellate(tess_amt)
 				for v in rawdata[0]:
 					vobject.add_vertex(v)
 					self.vertices.append(v)
@@ -453,6 +455,8 @@ class MainWindow(QMainWindow):
 
 		for ob in objects:
 			self.vobjects.append(self.recursive_load(ob))
+
+		self.model.setup_model_data2(self.vobjects[0])
 		
 	def recursive_load(self, node):
 		vname = node.Label.replace(" ", "_")
