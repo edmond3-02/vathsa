@@ -3,11 +3,13 @@
 
 import os, sys
 from subprocess import check_output
+from pathlib import Path
 
 from PySide2 import QtGui
-from PySide2.QtWidgets import QApplication, QMainWindow, QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QPushButton, QLineEdit, QRadioButton, QStackedLayout
+from PySide2.QtWidgets import QApplication, QMainWindow, QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QPushButton, QLineEdit, QRadioButton, QStackedLayout, QCheckBox, QTreeView, QAbstractItemView
 from PySide2.QtCore import Qt, QSize
 from Vobject import Vobject
+from Vtreemodel import VTreeModel
 
 try:
 	sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -29,11 +31,13 @@ class MainWindow(QMainWindow):
 		super().__init__()
 
 		self.min_width = 400
-		self.min_height = 200
+		self.min_height = 400
 
 		self.in_file = ""
 		self.out_file = ""
 		self.out_format = ""
+
+		self.verbose = False
 
 		self.tess_amt = 1.0
 		self.linear_deflection = 0.1
@@ -45,6 +49,7 @@ class MainWindow(QMainWindow):
 		self.face_normals = []
 
 		self.vobjects = []
+		self.alt_vobjects = []
 
 		self.initUI()
 
@@ -69,13 +74,13 @@ class MainWindow(QMainWindow):
 		layout.addWidget(tess_type_label)
 
 		# Shape tesselation method, Radio button
-		self.shape_tesselation_rbutton = QRadioButton("Tesselation method")
+		self.shape_tesselation_rbutton = QRadioButton("Recursive method")
 		self.shape_tesselation_rbutton.clicked.connect(self.update_options_box)
 		layout.addWidget(self.shape_tesselation_rbutton)
 		self.shape_tesselation_rbutton.toggle()
 
 		# Mesh from shape method, Radio button
-		self.mesh_from_shape_rbutton = QRadioButton("Mesh from shape method")
+		self.mesh_from_shape_rbutton = QRadioButton("Single body method")
 		self.mesh_from_shape_rbutton.clicked.connect(self.update_options_box)
 		layout.addWidget(self.mesh_from_shape_rbutton)
 
@@ -144,14 +149,50 @@ class MainWindow(QMainWindow):
 		# Add widget to layout
 		angular_deflection_layout.addWidget(self.angular_deflection_box)
 
+		# ### TREE ###
+
+		self.view = QTreeView()
+		self.view.setAlternatingRowColors(True)
+		self.view.setSelectionBehavior(QAbstractItemView.SelectItems)
+		self.view.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+		self.view.setAnimated(False)
+		self.view.setAllColumnsShowFocus(True)
+
+		layout.addWidget(self.view)
+
+		headers = ["Name", "Tesselation level"]
+
+		file = Path(__file__).parent / "default.txt"
+		self.model = VTreeModel(headers, file.read_text(), self)
+
+		if "-t" in sys.argv:
+			QAbstractItemModelTester(self.model, self)
+		self.view.setModel(self.model)
+		self.view.expandAll()
+
+		# for column in range(self.model.columnCount()):
+		#	self.view.resizeColumnToContents(column)
+		self.view.setColumnWidth(0, 200)
+
+		selection_model = self.view.selectionModel()
+
 		# ### Save button ###
-		layout.addStretch()
+
+		output_widget = QWidget()
+		output_layout = QHBoxLayout()
+		output_widget.setLayout(output_layout)
+		layout.addWidget(output_widget)
+
+		self.center_pivot_box = QCheckBox("Force center of mass")
+		self.center_pivot_box.setChecked(True)
+		output_layout.addWidget(self.center_pivot_box)
+
 
 		save_button = QPushButton("Save")
 		save_button.setMaximumWidth(120)
 
 		save_button.clicked.connect(self.get_destination_file)
-		layout.addWidget(save_button, alignment=Qt.AlignRight)
+		output_layout.addWidget(save_button, alignment=Qt.AlignRight)
 
 		# ### MAIN APP LAYOUT ####
 
@@ -179,7 +220,10 @@ class MainWindow(QMainWindow):
 			return
 		
 		self.in_file = file_name
-		self.in_file_label.setText(file_name)
+		self.in_file_label.setText(self.in_file)
+
+		self.clear_all()
+		self.load_vobjects()
 
 	# ### GET DESTINATION FILE ###
 	def get_destination_file(self):
@@ -196,15 +240,20 @@ class MainWindow(QMainWindow):
 
 	# ### OUTPUT FILE ###
 	def save_file(self):
-		self.clear_data()
+		self.clear_meshes()
 
 		# choose tesselation method
 		if self.shape_tesselation_rbutton.isChecked():
-			self.shape_tesselate()
-			for vob in self.vobjects:
-				print(vob.tostring())
+			self.shape_tessellate_loaded()
 		elif self.mesh_from_shape_rbutton.isChecked():
 			self.mesh_from_shape()
+
+	
+		if self.verbose:
+			for vob in self.vobjects:
+				print(vob.tostring())
+
+		print(self.model.__repr__)
 
 		# select output file
 		if self.out_format == 'FBX':
@@ -214,7 +263,7 @@ class MainWindow(QMainWindow):
 
 	# ### CONVERT TO FBX ###
 	def save_fbx(self):
-    	# Prepare the FBX SDK.
+		# Prepare the FBX SDK.
 		(lSdkManager, lScene) = FbxCommon.InitializeSdkObjects()
 
 		# Create the scene.
@@ -230,10 +279,22 @@ class MainWindow(QMainWindow):
 
 		if lResult == False:
 			print("\n\nAn error occurred while saving the scene...\n")
-        	
+			
 		lSdkManager.Destroy()
-        	
+			
 		return
+
+	# ### CONVERT TO OBJ ####
+	def save_obj(self):
+		with open(self.out_file, "w") as f:
+			for vert in self.vertices:
+				f.write(f'v {vert.x} {vert.y} {vert.z}\n')
+			for normal in self.face_normals:
+				f.write(f'vn {normal.x} {normal.y} {normal.z}\n')
+			face_normal_index = 1
+			for face in self.face_indices:
+				f.write(f'f {face[0] + 1}//{face_normal_index} {face[1] + 1}//{face_normal_index} {face[2] + 1}//{face_normal_index}\n')
+				face_normal_index += 1
 
 	def create_scene(self, sdk_manager, scene):
 		lRootNode = scene.GetRootNode()
@@ -245,7 +306,6 @@ class MainWindow(QMainWindow):
 		
 		return True
 
-
 	def add_node(self, sdk_manager, vobject):
 		node = self.make_node(sdk_manager, vobject)
 
@@ -255,11 +315,11 @@ class MainWindow(QMainWindow):
 		return node
 
 	def make_node(self, sdk_manager, vobject):
-		lMesh = FbxMesh.Create(sdk_manager, vobject.name)
+		lMesh = FbxMesh.Create(sdk_manager, vobject.model_item.item_data[0])
 
 		verts = []
 		lMesh.InitControlPoints(len(vobject.vertices))     
-    
+	
 		index = 0
 		for v in vobject.vertices:
 			lMesh.SetControlPointAt(FbxVector4(v.x, v.y, v.z), index)
@@ -290,62 +350,47 @@ class MainWindow(QMainWindow):
 
 		lLayer.SetNormals(lLayerElementNormal)
 
-		lNode = FbxNode.Create(sdk_manager, vobject.name)
+		lNode = FbxNode.Create(sdk_manager, vobject.model_item.item_data[0])
 		lNode.SetNodeAttribute(lMesh)
+		lNode.LclTranslation.Set(FbxDouble3(vobject.position.x, vobject.position.y, vobject.position.z))
 		lNode.SetShadingMode(FbxNode.EShadingMode.eFlatShading)
 
 		return lNode
 
-	def shape_tesselate(self):
-		import Import
-		Import.open(self.in_file, "Unnamed")
-		doc = App.ActiveDocument
-		
-		objects = doc.RootObjects
+	def shape_tessellate_loaded(self):
+		for ob in self.vobjects:
+			self.recursive_tessellate_loaded(ob)
 
-		for ob in objects:
-			self.vobjects.append(self.recursive_tessellate(ob, 0))
+	def recursive_tessellate_loaded(self, vobject):
+		for child in vobject.children:
+			self.recursive_tessellate_loaded(child)
 
-		App.closeDocument("Unnamed")
 
-	def recursive_tessellate(self, node, level):
-
-		# make vobject
-		vname = node.Label.replace(" ", "_")
-		vobject = Vobject(name=vname, position=node.Placement.Base)
-
-		string = ""
-		for i in range(level):
-			string += "  "
-		string += vobject.name
-
-		if(node.TypeId == "App::Part"):
-			for child in node.Group:
-				vobject.children.append(self.recursive_tessellate(child, level + 1))
-		if(node.TypeId == "Part::Feature"):
-			shape = node.Shape
+		if(vobject.part.TypeId == "Part::Feature"):
+			shape = vobject.part.Shape
 			if shape.Faces:
-				rawdata = shape.tessellate(self.tess_amt)
-				string += "\n---first tesselated vert: " + str(rawdata[0][0])
-				string += " last tesselated vert: " + str(rawdata[0][len(rawdata[0]) - 1])
+				# use global values if the vobject tessellation amount is unchanged from 1
+				tess_amt = self.tess_amt if vobject.model_item.item_data[1] == -1 else vobject.model_item.item_data[1]
+				print(vobject.name + " " + str(tess_amt))
+				rawdata = shape.tessellate(tess_amt)
+				vobject.vertices = []
+				vobject.global_verts = []
+				vobject.faces = []
+				vobject.normals = []
 				for v in rawdata[0]:
-					vobject.vertices.append(v)
-				#	self.vertices.append(v)
+					vobject.add_vertex(v)
+					self.vertices.append(v)
 				for f in rawdata[1]:
 					vobject.faces.append(f)
-				#	self.face_indices.append((f[0]+self.previous_indices, f[1]+self.previous_indices, f[2]+self.previous_indices))
+					self.face_indices.append((f[0]+self.previous_indices, f[1]+self.previous_indices, f[2]+self.previous_indices))
 					v1 = vobject.vertices[f[1]].sub(vobject.vertices[f[0]])
 					v2 = vobject.vertices[f[2]].sub(vobject.vertices[f[0]])
 					normal = v1.cross(v2).normalize()
 					vobject.normals.append(normal)
-				#	self.face_normals.append(normal)
-				#self.previous_indices = self.previous_indices + len(rawdata[1])
-				string += "\n---first written vert: " + str(vobject.vertices[0])
-				string += " last written vert: " + str(vobject.vertices[len(vobject.vertices) - 1])
-
-		print(string)
-
-		return vobject
+					self.face_normals.append(normal)
+				self.previous_indices = self.previous_indices + len(rawdata[1])
+				if self.center_pivot_box.isChecked():
+					vobject.center_pivot()
 
 	def mesh_from_shape(self):
 		import Mesh, Part
@@ -357,46 +402,83 @@ class MainWindow(QMainWindow):
 
 		__doc__=App.ActiveDocument
 
-		for __object__ in __doc__.Objects:
-			__mesh__=__doc__.addObject("Mesh::Feature","Mesh")
-			__part__=__doc__.getObject("Model")
-			__shape__=Part.getShape(__part__,"")
+		for __object__ in __doc__.RootObjects:
+			vname = __object__.Label.replace(" ", "_")
+			__mesh__=__doc__.addObject("Mesh::Feature", vname)
+			__shape__=Part.getShape(__object__,"")
 			__mesh__.Mesh=MeshPart.meshFromShape(Shape=__shape__, LinearDeflection=self.linear_deflection, AngularDeflection=self.angular_deflection, Relative=False)
+
+			vobject = Vobject(name=vname, position=__object__.Placement.Base)
 
 			# points
 			points = __mesh__.Mesh.Points
 			for point in points:
-				self.vertices.append(point)
+				self.vertices.append(point.Vector)
+				vobject.add_vertex(point.Vector)
 			# faces
 			faces = __mesh__.Mesh.Facets
 			for face in faces:
 				self.face_indices.append(face.PointIndices)
-				v1 = self.vertices[face.PointIndices[1]].Vector.sub(self.vertices[face.PointIndices[0]].Vector)
-				v2 = self.vertices[face.PointIndices[2]].Vector.sub(self.vertices[face.PointIndices[0]].Vector)
-				self.face_normals.append(v1.cross(v2).normalize())
+				vobject.faces.append(face.PointIndices)
+				v1 = self.vertices[face.PointIndices[1]].sub(self.vertices[face.PointIndices[0]])
+				v2 = self.vertices[face.PointIndices[2]].sub(self.vertices[face.PointIndices[0]])
+				normal = v1.cross(v2)
+				if normal != FreeCAD.Vector (0.0, 0.0, 0.0):
+					normal = normal.normalize()
+				else:
+					normal = FreeCAD.Vector(1.0, 0.0, 0.0)
+				self.face_normals.append(normal)
+				vobject.normals.append(normal)
+
+			self.vobjects.append(vobject)
 
 		App.closeDocument("Unnamed")
 
-	# ### CONVERT TO OBJ ####
-	def save_obj(self):
-		
-		with open(self.out_file, "w") as f:
-			for vert in self.vertices:
-				f.write(f'v {vert.x} {vert.z} {vert.y}\n')
-			for normal in self.face_normals:
-				f.write(f'vn {normal.x} {normal.z} {normal.y}\n')
-			face_normal_index = 1
-			for face in self.face_indices:
-				f.write(f'f {face[0] + 1}//{face_normal_index} {face[1] + 1}//{face_normal_index} {face[2] + 1}//{face_normal_index}\n')
-				face_normal_index += 1
+	def load_vobjects(self):
+		# clear any existing objects
+		doc = App.ActiveDocument
+		if doc != None:
+			doc.clearDocument()
 
-	def clear_data(self):
+		# import new file
+		import Import
+		Import.open(self.in_file, "Unnamed")
+		doc = App.ActiveDocument
+
+		objects = doc.RootObjects
+
+		for ob in objects:
+			self.vobjects.append(self.recursive_load(ob))
+
+		print(self.vobjects[0].tostring())
+
+		self.model.setup_model_data2(self.vobjects[0])
+		
+	def recursive_load(self, node):
+		vname = node.Label.replace(" ", "_")
+		vobject = Vobject(name=vname)
+		vobject.part = node
+
+		if(node.TypeId == "App::Part"):
+			for child in node.Group:
+				vobject.children.append(self.recursive_load(child))
+
+		return vobject
+
+	def clear_all(self):
 		self.vertices = []
 		self.previous_indices = 0
 		self.face_indices = []
 		self.face_normals = []
 
 		self.vobjects = []
+		self.alt_vobjects = []
+
+	def clear_meshes(self):
+		self.vertices = []
+		self.previous_indices = 0
+		self.face_indices = []
+		self.face_normals = []
 
 def main():
 	app = QApplication(sys.argv)
